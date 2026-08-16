@@ -6,9 +6,9 @@
     <PackageId>SyntaxCircus.RevenueCat</PackageId>
     <Title>SyntaxCircus RevenueCat</Title>
     <Description>RevenueCat backend integration: HMAC webhook signature verification, a strict-by-default webhook reader, and typed REST clients for subscriber verification, transaction reconciliation, product publishing, and anonymous-user aliasing.</Description>
-    <Authors>SyntaxCircus</Authors>
-    <Company>SyntaxCircus</Company>
-    <Copyright>Copyright © SyntaxCircus</Copyright>
+    <Authors>Syntax Circus LLC</Authors>
+    <Company>Syntax Circus LLC</Company>
+    <Copyright>Copyright © Syntax Circus LLC</Copyright>
     <PackageTags>revenuecat;webhooks;in-app-purchases;subscriptions</PackageTags>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

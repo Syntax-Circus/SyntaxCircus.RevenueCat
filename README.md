@@ -1,6 +1,7 @@
 # SyntaxCircus.RevenueCat
 
 [![Build](https://github.com/Syntax-Circus/SyntaxCircus.RevenueCat/actions/workflows/build.yml/badge.svg)](https://github.com/Syntax-Circus/SyntaxCircus.RevenueCat/actions/workflows/build.yml)
+[![NuGet](https://img.shields.io/nuget/v/SyntaxCircus.RevenueCat.svg)](https://www.nuget.org/packages/SyntaxCircus.RevenueCat)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.txt)
 
 Backend-side RevenueCat integration: HMAC webhook signature verification, a strict-by-default webhook reader, and typed REST clients for subscriber verification, transaction reconciliation, product publishing, and anonymous-user aliasing. No third-party dependency — everything is plain `HttpClient` + `System.Text.Json` + `System.Security.Cryptography` against RevenueCat's REST API.
