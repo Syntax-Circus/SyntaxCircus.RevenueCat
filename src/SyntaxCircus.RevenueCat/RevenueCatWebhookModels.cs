@@ -67,6 +67,10 @@ public sealed class RevenueCatEvent
     [JsonPropertyName("event_timestamp_ms")]
     public long? EventTimestampMs { get; init; }
 
+    /// <summary>Subscription expiration timestamp in milliseconds since Unix epoch — distinct from <see cref="EventTimestampMs"/> (when the event fired). Present on purchase/renewal-family events.</summary>
+    [JsonPropertyName("expiration_at_ms")]
+    public long? ExpirationAtMs { get; init; }
+
     [JsonPropertyName("country_code")]
     public string? CountryCode { get; init; }
 
@@ -96,19 +100,45 @@ public sealed class RevenueCatSubscriberValue
     public long? UpdatedAtMs { get; init; }
 }
 
-/// <summary>Known RevenueCat event type constants.</summary>
+/// <summary>
+/// Known RevenueCat event type constants. Verified against
+/// https://www.revenuecat.com/docs/integrations/webhooks/event-types-and-fields
+/// and https://www.revenuecat.com/docs/integrations/webhooks/sample-events on 2026-08-17.
+/// </summary>
 public static class RevenueCatEventTypes
 {
     public const string InitialPurchase = "INITIAL_PURCHASE";
     public const string NonRenewingPurchase = "NON_RENEWING_PURCHASE";
     public const string Renewal = "RENEWAL";
     public const string Cancellation = "CANCELLATION";
+    public const string Uncancellation = "UNCANCELLATION";
     public const string Refund = "REFUND";
+    public const string RefundReversed = "REFUND_REVERSED";
     public const string ProductChange = "PRODUCT_CHANGE";
     public const string BillingIssue = "BILLING_ISSUE";
     public const string SubscriberAlias = "SUBSCRIBER_ALIAS";
     public const string Transfer = "TRANSFER";
     public const string Expiration = "EXPIRATION";
+    public const string SubscriptionPaused = "SUBSCRIPTION_PAUSED";
+    public const string SubscriptionExtended = "SUBSCRIPTION_EXTENDED";
+    public const string InvoiceIssuance = "INVOICE_ISSUANCE";
+    public const string TemporaryEntitlementGrant = "TEMPORARY_ENTITLEMENT_GRANT";
+    public const string VirtualCurrencyTransaction = "VIRTUAL_CURRENCY_TRANSACTION";
+    public const string ExperimentEnrollment = "EXPERIMENT_ENROLLMENT";
+    public const string PurchaseRedeemed = "PURCHASE_REDEEMED";
+
+    // Paywall UI events
+    public const string PaywallImpression = "PAYWALL_IMPRESSION";
+    public const string PaywallClose = "PAYWALL_CLOSE";
+    public const string PaywallCancel = "PAYWALL_CANCEL";
+    public const string PaywallExitOffer = "PAYWALL_EXIT_OFFER";
+    public const string PaywallComponentInteracted = "PAYWALL_COMPONENT_INTERACTED";
+
+    public const string PriceIncreaseConsentRequired = "PRICE_INCREASE_CONSENT_REQUIRED";
+    public const string PriceIncreaseConsentApproved = "PRICE_INCREASE_CONSENT_APPROVED";
+
+    /// <summary>Test event sent from the RevenueCat dashboard's webhook configuration page.</summary>
+    public const string Test = "TEST";
 }
 
 /// <summary>Known RevenueCat store identifiers and their mapping to platform strings.</summary>
