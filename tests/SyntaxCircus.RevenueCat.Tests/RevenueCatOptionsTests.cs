@@ -8,6 +8,8 @@ public class RevenueCatOptionsTests
         var options = new RevenueCatOptions();
 
         options.RequireWebhookSecret.ShouldBeTrue();
+        options.WebhookSignatureToleranceSeconds.ShouldBe(300);
+        options.WebhookMaxBodyBytes.ShouldBe(262_144);
         options.ApiBaseUrl.ShouldBe("https://api.revenuecat.com/");
         options.ProductSyncApiBaseUrl.ShouldBe("https://api.revenuecat.com/v2/");
         options.TransactionsEndpoint.ShouldBe("v1/transactions");

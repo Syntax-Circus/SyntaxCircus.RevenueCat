@@ -25,6 +25,12 @@ public sealed class RevenueCatOptions
     /// </summary>
     public bool RequireWebhookSecret { get; init; } = true;
 
+    /// <summary>Maximum permitted clock skew for webhook signature timestamps (replay-window tolerance).</summary>
+    public int WebhookSignatureToleranceSeconds { get; init; } = 300;
+
+    /// <summary>Maximum accepted webhook request body size in bytes, checked before any parsing or verification work.</summary>
+    public int WebhookMaxBodyBytes { get; init; } = 262_144;
+
     /// <summary>RevenueCat REST API v1 base URL (subscribers, transactions).</summary>
     public string ApiBaseUrl { get; init; } = "https://api.revenuecat.com/";
 
@@ -43,6 +49,14 @@ public sealed class RevenueCatOptions
     /// <summary>RevenueCat app identifiers a single internal product should be published to (multi-platform/test-plus-live setups).</summary>
     public string[] ProductSyncAppIds { get; init; } = [];
 
-    /// <summary>Relative endpoint path used to retrieve transactions for reconciliation.</summary>
+    /// <summary>
+    /// Relative endpoint path used by <see cref="IRevenueCatTransactionService.GetTransactionsAsync"/>
+    /// to retrieve transactions for reconciliation. RevenueCat's own REST API has no bulk
+    /// "list transactions in a date range" endpoint — this default only resolves against a custom
+    /// aggregation proxy you control. Most consumers should instead call
+    /// <see cref="IRevenueCatTransactionService.GetTransactionsForCandidatesAsync"/>, which queries
+    /// RevenueCat's real per-subscriber endpoint (<c>GET v1/subscribers/{app_user_id}</c>) for a
+    /// caller-supplied set of candidate app_user_ids.
+    /// </summary>
     public string TransactionsEndpoint { get; init; } = "v1/transactions";
 }

@@ -27,6 +27,23 @@ public sealed partial class RevenueCatTransactionService(
     [LoggerMessage(Level = LogLevel.Error, Message = "RevenueCat reconciliation request failed")]
     private static partial void LogRequestException(ILogger logger, Exception exception);
 
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "RevenueCat reconciliation fetched {Count} transactions across {CandidateCount} subscribers for window {StartDate} - {EndDate}")]
+    private static partial void LogFetchedCandidateTransactions(
+        ILogger logger,
+        int count,
+        int candidateCount,
+        DateTimeOffset startDate,
+        DateTimeOffset endDate);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "RevenueCat reconciliation request for subscriber {AppUserId} failed with HTTP {StatusCode}")]
+    private static partial void LogSubscriberRequestFailed(ILogger logger, string appUserId, int statusCode);
+
+    [LoggerMessage(Level = LogLevel.Error,
+        Message = "RevenueCat reconciliation request for subscriber {AppUserId} failed")]
+    private static partial void LogSubscriberRequestException(ILogger logger, Exception exception, string appUserId);
+
     public async Task<IReadOnlyList<RevenueCatTransaction>> GetTransactionsAsync(
         DateTimeOffset startDate,
         DateTimeOffset endDate,
@@ -76,6 +93,161 @@ public sealed partial class RevenueCatTransactionService(
             LogRequestException(logger, ex);
             return [];
         }
+    }
+
+    public async Task<IReadOnlyList<RevenueCatTransaction>> GetTransactionsForCandidatesAsync(
+        IReadOnlyCollection<string> candidateAppUserIds,
+        DateTimeOffset startDate,
+        DateTimeOffset endDate,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(candidateAppUserIds);
+
+        var credentials = RevenueCatApiKeyResolver.ResolveV1CompatibleCredentials(revenueCatOptions.Value);
+        if (credentials.Count == 0)
+        {
+            LogMissingApiKey(logger);
+            return [];
+        }
+
+        if (candidateAppUserIds.Count == 0)
+        {
+            return [];
+        }
+
+        var transactions = new List<RevenueCatTransaction>();
+        foreach (var appUserId in candidateAppUserIds)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            transactions.AddRange(await GetSubscriberTransactionsAsync(appUserId, credentials, cancellationToken).ConfigureAwait(false));
+        }
+
+        var result = transactions
+            .Where(transaction => transaction.PurchasedAt >= startDate && transaction.PurchasedAt <= endDate)
+            .GroupBy(transaction => transaction.TransactionId, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .ToList();
+
+        LogFetchedCandidateTransactions(logger, result.Count, candidateAppUserIds.Count, startDate, endDate);
+        return result;
+    }
+
+    private async Task<List<RevenueCatTransaction>> GetSubscriberTransactionsAsync(
+        string appUserId,
+        List<(string Source, string ApiKey)> credentials,
+        CancellationToken cancellationToken)
+    {
+        foreach (var (_, apiKey) in credentials)
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"v1/subscribers/{Uri.EscapeDataString(appUserId)}");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+
+            try
+            {
+                using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                {
+                    LogSubscriberRequestFailed(logger, appUserId, (int)response.StatusCode);
+                    continue;
+                }
+
+                await using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                using var document = await JsonDocument.ParseAsync(responseStream, cancellationToken: cancellationToken).ConfigureAwait(false);
+                return ParseSubscriberTransactions(document.RootElement, appUserId);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or JsonException)
+            {
+                LogSubscriberRequestException(logger, ex, appUserId);
+            }
+        }
+
+        return [];
+    }
+
+    private static List<RevenueCatTransaction> ParseSubscriberTransactions(JsonElement root, string appUserId)
+    {
+        var transactions = new List<RevenueCatTransaction>();
+
+        if (root.ValueKind != JsonValueKind.Object ||
+            !root.TryGetProperty("subscriber", out var subscriber) ||
+            subscriber.ValueKind != JsonValueKind.Object ||
+            !subscriber.TryGetProperty("non_subscriptions", out var nonSubscriptions) ||
+            nonSubscriptions.ValueKind != JsonValueKind.Object)
+        {
+            return transactions;
+        }
+
+        foreach (var product in nonSubscriptions.EnumerateObject())
+        {
+            if (product.Value.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            foreach (var item in product.Value.EnumerateArray())
+            {
+                var transaction = MapSubscriberTransaction(item, product.Name, appUserId);
+                if (transaction is not null)
+                {
+                    transactions.Add(transaction);
+                }
+            }
+        }
+
+        return transactions;
+    }
+
+    private static RevenueCatTransaction? MapSubscriberTransaction(JsonElement item, string productId, string appUserId)
+    {
+        var transactionId = GetString(item, "store_transaction_id")
+            ?? GetString(item, "transaction_id")
+            ?? GetString(item, "id");
+
+        if (string.IsNullOrWhiteSpace(transactionId))
+        {
+            return null;
+        }
+
+        var purchasedAt = GetDateTimeOffset(item, "purchase_date")
+            ?? GetDateTimeOffset(item, "purchased_at")
+            ?? GetDateTimeOffsetFromMilliseconds(item, "purchase_date_ms")
+            ?? GetDateTimeOffsetFromMilliseconds(item, "purchased_at_ms")
+            ?? DateTimeOffset.UtcNow;
+
+        return new RevenueCatTransaction
+        {
+            TransactionId = transactionId,
+            AppUserId = appUserId,
+            ProductId = GetString(item, "product_id") ?? productId,
+            Price = GetDecimal(item, "price") ?? GetDecimal(item, "price_in_purchased_currency") ?? 0m,
+            Currency = GetString(item, "currency") ?? GetNestedString(item, "price", "currency") ?? "USD",
+            Store = NormalizeStore(GetString(item, "store")),
+            Status = GetString(item, "status") ?? "completed",
+            PurchasedAt = purchasedAt,
+            Metadata = GetMetadata(item),
+        };
+    }
+
+    private static Dictionary<string, string?> GetMetadata(JsonElement item)
+    {
+        if (!item.TryGetProperty("metadata", out var metadata) || metadata.ValueKind != JsonValueKind.Object)
+        {
+            return [];
+        }
+
+        return metadata.EnumerateObject()
+            .ToDictionary(
+                property => property.Name,
+                property => property.Value.ValueKind == JsonValueKind.String
+                    ? property.Value.GetString()
+                    : property.Value.ToString(),
+                StringComparer.Ordinal);
     }
 
     private static string BuildTransactionsPath(string endpoint, DateTimeOffset startDate, DateTimeOffset endDate)
