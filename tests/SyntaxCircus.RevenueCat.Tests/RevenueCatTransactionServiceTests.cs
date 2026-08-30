@@ -207,4 +207,130 @@ public class RevenueCatTransactionServiceTests
         await Should.ThrowAsync<OperationCanceledException>(() =>
             service.GetTransactionsAsync(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow, cts.Token));
     }
+
+    private static HttpResponseMessage SubscriberResponse(string appUserId, string transactionId, string purchaseDate, object? metadata = null)
+        => JsonResponse(new
+        {
+            subscriber = new
+            {
+                non_subscriptions = new Dictionary<string, object>
+                {
+                    ["product_1"] = new[]
+                    {
+                        new
+                        {
+                            id = transactionId,
+                            app_user_id = appUserId,
+                            product_id = "product_1",
+                            purchase_date = purchaseDate,
+                            metadata,
+                        },
+                    },
+                },
+            },
+        });
+
+    private static string? CandidateFromUri(Uri? uri)
+        => uri?.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
+
+    [Fact]
+    public async Task GetTransactionsForCandidatesAsync_MultipleCandidates_AggregatesAcrossAll()
+    {
+        var start = DateTimeOffset.Parse("2026-01-01T00:00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
+        var end = DateTimeOffset.Parse("2026-01-31T00:00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
+        var (service, handler) = CreateService(request => CandidateFromUri(request.RequestUri) switch
+        {
+            "user_1" => SubscriberResponse("user_1", "txn_1", "2026-01-05T00:00:00Z"),
+            "user_2" => SubscriberResponse("user_2", "txn_2", "2026-01-10T00:00:00Z"),
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+        });
+
+        var result = await service.GetTransactionsForCandidatesAsync(["user_1", "user_2"], start, end, TestContext.Current.CancellationToken);
+
+        result.Count.ShouldBe(2);
+        result.Select(t => t.TransactionId).ShouldBe(["txn_1", "txn_2"], ignoreOrder: true);
+        handler.Requests.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task GetTransactionsForCandidatesAsync_OneCandidateFails_OthersStillProcessed()
+    {
+        var start = DateTimeOffset.Parse("2026-01-01T00:00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
+        var end = DateTimeOffset.Parse("2026-01-31T00:00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
+        var (service, _) = CreateService(request => CandidateFromUri(request.RequestUri) switch
+        {
+            "user_bad" => new HttpResponseMessage(HttpStatusCode.InternalServerError),
+            "user_good" => SubscriberResponse("user_good", "txn_good", "2026-01-10T00:00:00Z"),
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+        });
+
+        var result = await service.GetTransactionsForCandidatesAsync(["user_bad", "user_good"], start, end, TestContext.Current.CancellationToken);
+
+        result.Count.ShouldBe(1);
+        result[0].TransactionId.ShouldBe("txn_good");
+    }
+
+    [Fact]
+    public async Task GetTransactionsForCandidatesAsync_EmptyCandidateList_ReturnsEmptyWithoutCallingApi()
+    {
+        var (service, handler) = CreateService(_ => new HttpResponseMessage(HttpStatusCode.OK));
+
+        var result = await service.GetTransactionsForCandidatesAsync([], DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow, TestContext.Current.CancellationToken);
+
+        result.ShouldBeEmpty();
+        handler.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetTransactionsForCandidatesAsync_NoApiKeyConfigured_ReturnsEmptyWithoutCallingApi()
+    {
+        var (service, handler) = CreateService(_ => new HttpResponseMessage(HttpStatusCode.OK), new RevenueCatOptions());
+
+        var result = await service.GetTransactionsForCandidatesAsync(["user_1"], DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow, TestContext.Current.CancellationToken);
+
+        result.ShouldBeEmpty();
+        handler.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetTransactionsForCandidatesAsync_TransactionOutsideDateWindow_Excluded()
+    {
+        var start = DateTimeOffset.Parse("2026-01-01T00:00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
+        var end = DateTimeOffset.Parse("2026-01-31T00:00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
+        var (service, _) = CreateService(_ => SubscriberResponse("user_1", "txn_old", "2025-06-01T00:00:00Z"));
+
+        var result = await service.GetTransactionsForCandidatesAsync(["user_1"], start, end, TestContext.Current.CancellationToken);
+
+        result.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task GetTransactionsForCandidatesAsync_DuplicateTransactionIdAcrossCandidates_Deduplicated()
+    {
+        var start = DateTimeOffset.Parse("2026-01-01T00:00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
+        var end = DateTimeOffset.Parse("2026-01-31T00:00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
+        var (service, _) = CreateService(request => CandidateFromUri(request.RequestUri) switch
+        {
+            "user_1" => SubscriberResponse("user_1", "txn_shared", "2026-01-05T00:00:00Z"),
+            "user_2" => SubscriberResponse("user_2", "txn_shared", "2026-01-05T00:00:00Z"),
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+        });
+
+        var result = await service.GetTransactionsForCandidatesAsync(["user_1", "user_2"], start, end, TestContext.Current.CancellationToken);
+
+        result.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task GetTransactionsForCandidatesAsync_MapsMetadata()
+    {
+        var start = DateTimeOffset.Parse("2026-01-01T00:00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
+        var end = DateTimeOffset.Parse("2026-01-31T00:00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
+        var (service, _) = CreateService(_ => SubscriberResponse("user_1", "txn_meta", "2026-01-05T00:00:00Z", new { sinId = "sin_123" }));
+
+        var result = await service.GetTransactionsForCandidatesAsync(["user_1"], start, end, TestContext.Current.CancellationToken);
+
+        result.Count.ShouldBe(1);
+        result[0].Metadata["sinId"].ShouldBe("sin_123");
+    }
 }

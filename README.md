@@ -22,6 +22,8 @@ builder.Services.AddRevenueCat(builder.Configuration); // binds "RevenueCat", re
     "ApiKey": "sk_...",
     "PublicApiKey": "...",
     "WebhookSecret": "...",
+    "WebhookSignatureToleranceSeconds": 300,
+    "WebhookMaxBodyBytes": 262144,
     "ProjectId": "...",
     "ProductSyncApiKey": "...",
     "ProductSyncAppIds": ["app_..."]
@@ -40,19 +42,20 @@ app.MapPost("/webhooks/revenuecat", async (HttpRequest request, IOptions<Revenue
     {
         RevenueCatWebhookStatus.Unauthorized => Results.Unauthorized(),
         RevenueCatWebhookStatus.Malformed => Results.BadRequest(),
+        RevenueCatWebhookStatus.TooLarge => Results.StatusCode(StatusCodes.Status413PayloadTooLarge),
         _ => HandleVerifiedEvent(result.Payload!, result.RawBody!), // your idempotency store + processing
     };
 });
 ```
 
-**By default, `RevenueCatOptions.RequireWebhookSecret` is `true`** — if `WebhookSecret` isn't configured, the reader rejects every request outright rather than silently accepting unverified ones. Only set `RequireWebhookSecret` to `false` for local development. This is the package's whole reason for existing: a hand-rolled webhook auth check (a static header string compare, no HMAC, no constant-time comparison) is an easy mistake to make and a real vulnerability — this reader closes that gap by construction.
+**By default, `RevenueCatOptions.RequireWebhookSecret` is `true`** — if `WebhookSecret` isn't configured, the reader rejects every request outright rather than silently accepting unverified ones. Only set `RequireWebhookSecret` to `false` for local development. This is the package's whole reason for existing: a hand-rolled webhook auth check is an easy mistake to make and a real vulnerability — this reader closes that gap by construction.
 
-`ReadAndVerifyAsync` buffers the raw request body (so it can be HMAC-verified and JSON-deserialized without double-consuming the stream), verifies `X-RevenueCat-Signature` via HMAC-SHA256 with a constant-time comparison, and deserializes the envelope — checking for a present `event.id` (use it as your idempotency key; this package doesn't own storage or dispatch, that's yours).
+`ReadAndVerifyAsync` enforces `RevenueCatOptions.WebhookMaxBodyBytes` before doing any parsing/verification work, buffers the raw request body as bytes (so it can be HMAC-verified and JSON-deserialized without double-consuming the stream), verifies the `X-RevenueCat-Webhook-Signature` header (`t=<unix_timestamp>,v1=<hmac_sha256_hex>`, HMAC-SHA256 over `"{timestamp}.{rawBody}"`, constant-time compared, with `WebhookSignatureToleranceSeconds` — default 300s — as a replay-window tolerance against the timestamp, per RevenueCat's documented webhook signing scheme), and deserializes the envelope — checking for a present `event.id` (use it as your idempotency key; this package doesn't own storage or dispatch, that's yours).
 
 ## REST clients
 
 - **`IRevenueCatPurchaseVerifier.VerifyAsync(new RevenueCatPurchaseVerificationRequest(appUserId, productId, transactionId))`** — confirms a purchase against the subscriber's `non_subscriptions`, falling back to the transactions API if the subscriber record hasn't caught up yet.
-- **`IRevenueCatTransactionService.GetTransactionsAsync(startDate, endDate)`** — fetches transactions for reconciliation (e.g. detecting "ghost" purchases the webhook never delivered).
+- **`IRevenueCatTransactionService.GetTransactionsForCandidatesAsync(candidateAppUserIds, startDate, endDate)`** — reconciles transactions for a caller-supplied set of candidate app_user_ids by querying `GET v1/subscribers/{app_user_id}` per id and aggregating `non_subscriptions`. This is the production-realistic reconciliation path: RevenueCat's REST API has no bulk "list transactions in a date range" endpoint. `GetTransactionsAsync(startDate, endDate)` still exists for consumers fronting RevenueCat with their own aggregation proxy at `RevenueCatOptions.TransactionsEndpoint`, but that endpoint doesn't exist on RevenueCat's own API.
 - **`IRevenueCatProductCatalogService.PublishOneTimeProductAsync(...)`** — creates or updates a one-time product across one or more RevenueCat apps (v2 API).
 - **`IRevenueCatSubscriberAliasClient.CreateAliasAsync(canonicalAppUserId, anonymousAppUserId)`** — aliases an anonymous purchaser to an identified user after login.
 

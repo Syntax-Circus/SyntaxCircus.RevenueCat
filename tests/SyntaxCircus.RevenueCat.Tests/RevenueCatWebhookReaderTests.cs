@@ -6,20 +6,24 @@ public class RevenueCatWebhookReaderTests
 {
     private const string Secret = "whsec_test_secret";
 
-    private static string ComputeSignature(string body, string secret)
+    private static string ComputeHeader(string body, string secret, DateTimeOffset timestamp)
     {
+        var unixTimestamp = timestamp.ToUnixTimeSeconds();
+        var payload = Encoding.UTF8.GetBytes($"{unixTimestamp}.{body}");
         using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
-        var computed = hmac.ComputeHash(Encoding.UTF8.GetBytes(body));
-        return Convert.ToHexString(computed).ToLowerInvariant();
+        var computed = hmac.ComputeHash(payload);
+        return $"t={unixTimestamp},v1={Convert.ToHexString(computed).ToLowerInvariant()}";
     }
 
-    private static DefaultHttpContext CreateContext(string body, string? signature)
+    private static DefaultHttpContext CreateContext(string body, string? signature, long? contentLength = null)
     {
+        var bodyBytes = Encoding.UTF8.GetBytes(body);
         var context = new DefaultHttpContext();
-        context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(body));
+        context.Request.Body = new MemoryStream(bodyBytes);
+        context.Request.ContentLength = contentLength ?? bodyBytes.Length;
         if (signature is not null)
         {
-            context.Request.Headers["X-RevenueCat-Signature"] = signature;
+            context.Request.Headers["X-RevenueCat-Webhook-Signature"] = signature;
         }
 
         return context;
@@ -29,7 +33,7 @@ public class RevenueCatWebhookReaderTests
     public async Task ReadAndVerifyAsync_ValidSignature_ReturnsSuccessWithParsedPayload()
     {
         const string body = "{\"api_version\":\"1.0\",\"event\":{\"id\":\"evt_1\",\"type\":\"INITIAL_PURCHASE\"}}";
-        var context = CreateContext(body, ComputeSignature(body, Secret));
+        var context = CreateContext(body, ComputeHeader(body, Secret, DateTimeOffset.UtcNow));
         var options = new RevenueCatOptions { WebhookSecret = Secret };
 
         var result = await RevenueCatWebhookReader.ReadAndVerifyAsync(context.Request, options, TestContext.Current.CancellationToken);
@@ -45,8 +49,21 @@ public class RevenueCatWebhookReaderTests
     {
         const string signedBody = "{\"event\":{\"id\":\"evt_1\"}}";
         const string tamperedBody = "{\"event\":{\"id\":\"evt_evil\"}}";
-        var context = CreateContext(tamperedBody, ComputeSignature(signedBody, Secret));
+        var context = CreateContext(tamperedBody, ComputeHeader(signedBody, Secret, DateTimeOffset.UtcNow));
         var options = new RevenueCatOptions { WebhookSecret = Secret };
+
+        var result = await RevenueCatWebhookReader.ReadAndVerifyAsync(context.Request, options, TestContext.Current.CancellationToken);
+
+        result.Status.ShouldBe(RevenueCatWebhookStatus.Unauthorized);
+    }
+
+    [Fact]
+    public async Task ReadAndVerifyAsync_StaleTimestampOutsideTolerance_ReturnsUnauthorized()
+    {
+        const string body = "{\"event\":{\"id\":\"evt_1\"}}";
+        var options = new RevenueCatOptions { WebhookSecret = Secret };
+        var staleTimestamp = DateTimeOffset.UtcNow - TimeSpan.FromSeconds(options.WebhookSignatureToleranceSeconds + 1);
+        var context = CreateContext(body, ComputeHeader(body, Secret, staleTimestamp));
 
         var result = await RevenueCatWebhookReader.ReadAndVerifyAsync(context.Request, options, TestContext.Current.CancellationToken);
 
@@ -94,7 +111,7 @@ public class RevenueCatWebhookReaderTests
     public async Task ReadAndVerifyAsync_MalformedJson_ReturnsMalformed()
     {
         const string body = "not json at all";
-        var context = CreateContext(body, ComputeSignature(body, Secret));
+        var context = CreateContext(body, ComputeHeader(body, Secret, DateTimeOffset.UtcNow));
         var options = new RevenueCatOptions { WebhookSecret = Secret };
 
         var result = await RevenueCatWebhookReader.ReadAndVerifyAsync(context.Request, options, TestContext.Current.CancellationToken);
@@ -106,12 +123,36 @@ public class RevenueCatWebhookReaderTests
     public async Task ReadAndVerifyAsync_MissingEventId_ReturnsMalformed()
     {
         const string body = "{\"event\":{\"type\":\"INITIAL_PURCHASE\"}}";
-        var context = CreateContext(body, ComputeSignature(body, Secret));
+        var context = CreateContext(body, ComputeHeader(body, Secret, DateTimeOffset.UtcNow));
         var options = new RevenueCatOptions { WebhookSecret = Secret };
 
         var result = await RevenueCatWebhookReader.ReadAndVerifyAsync(context.Request, options, TestContext.Current.CancellationToken);
 
         result.Status.ShouldBe(RevenueCatWebhookStatus.Malformed);
+    }
+
+    [Fact]
+    public async Task ReadAndVerifyAsync_ContentLengthOverMaxBodyBytes_ReturnsTooLarge()
+    {
+        const string body = "{\"event\":{\"id\":\"evt_1\"}}";
+        var options = new RevenueCatOptions { WebhookSecret = Secret, WebhookMaxBodyBytes = 8 };
+        var context = CreateContext(body, ComputeHeader(body, Secret, DateTimeOffset.UtcNow));
+
+        var result = await RevenueCatWebhookReader.ReadAndVerifyAsync(context.Request, options, TestContext.Current.CancellationToken);
+
+        result.Status.ShouldBe(RevenueCatWebhookStatus.TooLarge);
+    }
+
+    [Fact]
+    public async Task ReadAndVerifyAsync_BodyUnderMaxBodyBytes_Unaffected()
+    {
+        const string body = "{\"event\":{\"id\":\"evt_1\"}}";
+        var options = new RevenueCatOptions { WebhookSecret = Secret, WebhookMaxBodyBytes = 1024 };
+        var context = CreateContext(body, ComputeHeader(body, Secret, DateTimeOffset.UtcNow));
+
+        var result = await RevenueCatWebhookReader.ReadAndVerifyAsync(context.Request, options, TestContext.Current.CancellationToken);
+
+        result.Status.ShouldBe(RevenueCatWebhookStatus.Success);
     }
 
     [Fact]
@@ -132,7 +173,7 @@ public class RevenueCatWebhookReaderTests
     public async Task ReadAndVerifyAsync_ValidSignature_RewindsBodyPositionToStart()
     {
         const string body = "{\"event\":{\"id\":\"evt_1\"}}";
-        var context = CreateContext(body, ComputeSignature(body, Secret));
+        var context = CreateContext(body, ComputeHeader(body, Secret, DateTimeOffset.UtcNow));
         var options = new RevenueCatOptions { WebhookSecret = Secret };
 
         await RevenueCatWebhookReader.ReadAndVerifyAsync(context.Request, options, TestContext.Current.CancellationToken);
