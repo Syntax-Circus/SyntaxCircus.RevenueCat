@@ -17,23 +17,25 @@ public class RevenueCatApiKeyResolverTests
     }
 
     [Fact]
-    public void ResolveV1CompatibleCredentials_ApiKeyIsSecretKey_Excluded()
+    public void ResolveV1CompatibleCredentials_ApiKeyIsSecretKey_Included()
     {
+        // RevenueCat issues both v1- and v2-designated secret keys with the same "sk_" prefix, so the
+        // resolver can no longer tell them apart from the string alone — both candidates are returned.
         var options = new RevenueCatOptions { PublicApiKey = "public_key", ApiKey = "sk_secret_key" };
 
         var credentials = RevenueCatApiKeyResolver.ResolveV1CompatibleCredentials(options);
 
-        credentials.ShouldBe([("RevenueCat:PublicApiKey", "public_key")]);
+        credentials.ShouldBe([("RevenueCat:PublicApiKey", "public_key"), ("RevenueCat:ApiKey", "sk_secret_key")]);
     }
 
     [Fact]
-    public void ResolveV1CompatibleCredentials_ApiKeyIsOAuthToken_Excluded()
+    public void ResolveV1CompatibleCredentials_ApiKeyIsOAuthToken_Included()
     {
         var options = new RevenueCatOptions { ApiKey = "atk_oauth_token" };
 
         var credentials = RevenueCatApiKeyResolver.ResolveV1CompatibleCredentials(options);
 
-        credentials.ShouldBeEmpty();
+        credentials.ShouldBe([("RevenueCat:ApiKey", "atk_oauth_token")]);
     }
 
     [Fact]
@@ -75,14 +77,13 @@ public class RevenueCatApiKeyResolverTests
     }
 
     [Fact]
-    public void ResolvePrimaryV1CompatibleApiKeyOrThrow_OnlySecretKeyConfigured_ThrowsWithV2Guidance()
+    public void ResolvePrimaryV1CompatibleApiKeyOrThrow_OnlySecretKeyConfigured_ReturnsIt()
     {
         var options = new RevenueCatOptions { ApiKey = "sk_secret_only" };
 
-        var exception = Should.Throw<InvalidOperationException>(() =>
-            RevenueCatApiKeyResolver.ResolvePrimaryV1CompatibleApiKeyOrThrow(options, "test operation"));
+        var key = RevenueCatApiKeyResolver.ResolvePrimaryV1CompatibleApiKeyOrThrow(options, "test operation");
 
-        exception.Message.ShouldContain("PublicApiKey");
+        key.ShouldBe("sk_secret_only");
     }
 
     [Fact]
