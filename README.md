@@ -26,7 +26,8 @@ builder.Services.AddRevenueCat(builder.Configuration); // binds "RevenueCat", re
     "WebhookMaxBodyBytes": 262144,
     "ProjectId": "...",
     "ProductSyncApiKey": "...",
-    "ProductSyncAppIds": ["app_..."]
+    "ProductSyncAppIds": ["app_..."],
+    "ExpectedTransactionEnvironment": "Production"
   }
 }
 ```
@@ -58,6 +59,21 @@ app.MapPost("/webhooks/revenuecat", async (HttpRequest request, IOptions<Revenue
 - **`IRevenueCatTransactionService.GetTransactionsForCandidatesAsync(candidateAppUserIds, startDate, endDate)`** — reconciles transactions for a caller-supplied set of candidate app_user_ids by querying `GET v1/subscribers/{app_user_id}` per id and aggregating `non_subscriptions`. This is the production-realistic reconciliation path: RevenueCat's REST API has no bulk "list transactions in a date range" endpoint. `GetTransactionsAsync(startDate, endDate)` still exists for consumers fronting RevenueCat with their own aggregation proxy at `RevenueCatOptions.TransactionsEndpoint`, but that endpoint doesn't exist on RevenueCat's own API.
 - **`IRevenueCatProductCatalogService.PublishOneTimeProductAsync(...)`** — creates or updates a one-time product across one or more RevenueCat apps (v2 API).
 - **`IRevenueCatSubscriberAliasClient.CreateAliasAsync(canonicalAppUserId, anonymousAppUserId)`** — aliases an anonymous purchaser to an identified user after login.
+
+## Transaction-environment guard
+
+If your app has more than one deployed environment (e.g. UAT and Production) sharing one RevenueCat project, set `ExpectedTransactionEnvironment` (`Sandbox` or `Production`) on the deployment whose expectation you want enforced — left unset (the default), nothing here changes behavior:
+
+```csharp
+var verified = await verifier.VerifyAsync(new RevenueCatPurchaseVerificationRequest(appUserId, productId, transactionId));
+if (verified.Status == "environment_mismatch")
+{
+    // verified.Purchase is null - the transaction's real store environment (RevenueCatVerifiedPurchase.IsSandbox,
+    // parsed from the subscriber endpoint's non_subscriptions.*.is_sandbox) didn't match ExpectedTransactionEnvironment.
+}
+```
+
+This is independent of what any client believes its selected backend to be — a mobile client choosing "UAT" or "Production" locally is not proof of the underlying store transaction's real environment, so a UAT deployment could otherwise record a genuine production purchase (or vice versa) if a client's local selection doesn't match reality. `RevenueCatTransactionEnvironmentMatcher.MatchesWebhookEnvironment(expected, revenueCatEvent.Environment)` applies the identical check to the webhook path, since `RevenueCatEvent.Environment` already carries RevenueCat's own `SANDBOX`/`PRODUCTION` value — call it yourself before acting on a webhook event, the same way `IRevenueCatPurchaseVerifier` already does internally for verification. Both checks pass through unknown/unverifiable values (a `null` `IsSandbox` or a missing webhook `Environment`) rather than rejecting them, since an inability to verify isn't evidence of a mismatch.
 
 `RevenueCatApiKeyResolver` distinguishes v1-compatible keys (`PublicApiKey`, or a non-`sk_`/`atk_`-prefixed `ApiKey`) from v2-only project secret keys, and is what the subscriber/purchase/alias clients use internally to pick a working credential.
 

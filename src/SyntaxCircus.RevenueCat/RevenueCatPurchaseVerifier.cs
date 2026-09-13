@@ -19,6 +19,15 @@ public sealed record RevenueCatVerifiedPurchase
     public DateTimeOffset PurchasedAt { get; init; }
     public string? CheckoutEmail { get; init; }
     public Dictionary<string, string?> Metadata { get; init; } = [];
+
+    /// <summary>
+    /// The store's real sandbox/production flag for this transaction (RevenueCat's own
+    /// <c>is_sandbox</c> field), or <see langword="null"/> if unknown - populated when this purchase
+    /// was resolved from the subscriber endpoint's <c>non_subscriptions</c> data; the
+    /// transactions-fallback endpoint (a caller-configurable proxy) doesn't guarantee this field. See
+    /// <see cref="RevenueCatTransactionEnvironmentMatcher"/>.
+    /// </summary>
+    public bool? IsSandbox { get; init; }
 }
 
 public sealed record RevenueCatPurchaseVerificationResult
@@ -65,6 +74,11 @@ public sealed partial class RevenueCatPurchaseVerifier(
         Message = "RevenueCat purchase verification transactions fallback match: tx={TransactionId}, product={ProductId}, price={Price} {Currency}, store={Store}, status={Status}, purchasedAt={PurchasedAt}")]
     private static partial void LogTransactionsFallbackMatch(
         ILogger logger, string transactionId, string productId, decimal price, string currency, string store, string status, DateTimeOffset purchasedAt);
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "RevenueCat purchase verification rejected tx={TransactionId}: expected transaction environment {ExpectedEnvironment} but the transaction's IsSandbox flag was {IsSandbox}")]
+    private static partial void LogTransactionEnvironmentMismatch(ILogger logger, string transactionId, RevenueCatTransactionEnvironment expectedEnvironment, bool isSandbox);
 
     public async Task<RevenueCatPurchaseVerificationResult> VerifyAsync(
         RevenueCatPurchaseVerificationRequest request,
@@ -167,6 +181,12 @@ public sealed partial class RevenueCatPurchaseVerifier(
         if (!IsCompleted(verifiedPurchase))
         {
             return Failure("not_completed", "RevenueCat purchase exists but is not completed yet.", HttpStatusCode.Accepted);
+        }
+
+        if (!RevenueCatTransactionEnvironmentMatcher.MatchesVerifiedPurchase(revenueCatOptions.Value.ExpectedTransactionEnvironment, verifiedPurchase.IsSandbox))
+        {
+            LogTransactionEnvironmentMismatch(logger, transaction?.TransactionId ?? fallbackTransaction?.TransactionId ?? string.Empty, revenueCatOptions.Value.ExpectedTransactionEnvironment!.Value, verifiedPurchase.IsSandbox!.Value);
+            return Failure("environment_mismatch", "This purchase's store transaction environment does not match what this deployment expects.", HttpStatusCode.UnprocessableEntity);
         }
 
         return new RevenueCatPurchaseVerificationResult
@@ -309,8 +329,14 @@ public sealed partial class RevenueCatPurchaseVerifier(
             Status = GetString(item, "status") ?? "completed",
             PurchasedAt = purchasedAt,
             Metadata = GetMetadata(item),
+            IsSandbox = GetBoolean(item, "is_sandbox"),
         };
     }
+
+    private static bool? GetBoolean(JsonElement element, string propertyName)
+        => element.TryGetProperty(propertyName, out var value) && value.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? value.GetBoolean()
+            : null;
 
     private static List<string> GetTransactionIds(JsonElement item)
     {

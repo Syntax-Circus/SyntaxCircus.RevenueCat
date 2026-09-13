@@ -35,6 +35,18 @@ public class RevenueCatPurchaseVerifierTests
         }
         """;
 
+    private const string SubscriberWithSandboxTransactionJson = """
+        {
+          "subscriber": {
+            "non_subscriptions": {
+              "product_1": [
+                { "id": "txn_1", "purchase_date": "2026-01-15T00:00:00Z", "price": 9.99, "currency": "USD", "store": "app_store", "status": "completed", "is_sandbox": true }
+              ]
+            }
+          }
+        }
+        """;
+
     private static (RevenueCatPurchaseVerifier Verifier, StubHttpMessageHandler Handler, IRevenueCatTransactionService TransactionService) CreateVerifier(
         Func<HttpRequestMessage, HttpResponseMessage> responder,
         RevenueCatOptions? options = null)
@@ -137,6 +149,50 @@ public class RevenueCatPurchaseVerifierTests
         result.Status.ShouldBe("verified");
         result.Purchase!.TransactionId.ShouldBe("txn_fallback");
         result.Purchase.Price.ShouldBe(4.99m);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_ParsesIsSandboxFromSubscriberTransaction()
+    {
+        var (verifier, _, _) = CreateVerifier(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(SubscriberWithSandboxTransactionJson, Encoding.UTF8, "application/json"),
+        });
+
+        var result = await verifier.VerifyAsync(new RevenueCatPurchaseVerificationRequest("user1", "product_1", null), TestContext.Current.CancellationToken);
+
+        result.Status.ShouldBe("verified");
+        result.Purchase!.IsSandbox.ShouldBe(true);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_SandboxTransactionButProductionExpected_ReturnsEnvironmentMismatch()
+    {
+        var options = new RevenueCatOptions { PublicApiKey = "public_key", ExpectedTransactionEnvironment = RevenueCatTransactionEnvironment.Production };
+        var (verifier, _, _) = CreateVerifier(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(SubscriberWithSandboxTransactionJson, Encoding.UTF8, "application/json"),
+        }, options);
+
+        var result = await verifier.VerifyAsync(new RevenueCatPurchaseVerificationRequest("user1", "product_1", null), TestContext.Current.CancellationToken);
+
+        result.Status.ShouldBe("environment_mismatch");
+        result.HttpStatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        result.Purchase.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task VerifyAsync_SandboxTransactionAndSandboxExpected_ReturnsVerified()
+    {
+        var options = new RevenueCatOptions { PublicApiKey = "public_key", ExpectedTransactionEnvironment = RevenueCatTransactionEnvironment.Sandbox };
+        var (verifier, _, _) = CreateVerifier(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(SubscriberWithSandboxTransactionJson, Encoding.UTF8, "application/json"),
+        }, options);
+
+        var result = await verifier.VerifyAsync(new RevenueCatPurchaseVerificationRequest("user1", "product_1", null), TestContext.Current.CancellationToken);
+
+        result.Status.ShouldBe("verified");
     }
 
     [Fact]
