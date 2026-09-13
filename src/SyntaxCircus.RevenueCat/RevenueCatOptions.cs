@@ -50,6 +50,18 @@ public sealed class RevenueCatOptions
     public string[] ProductSyncAppIds { get; init; } = [];
 
     /// <summary>
+    /// The store transaction environment this deployment expects to see (e.g. a UAT deployment sets
+    /// <see cref="RevenueCatTransactionEnvironment.Sandbox"/>, Production sets
+    /// <see cref="RevenueCatTransactionEnvironment.Production"/>). Opt-in and unset by default, so
+    /// existing single-environment consumers are unaffected. When set,
+    /// <see cref="RevenueCatTransactionEnvironmentMatcher"/> flags a mismatch between this and a
+    /// webhook event's/verified purchase's real environment - independent of what any client believes
+    /// its selected backend to be, since a mobile client's app-environment choice isn't proof of the
+    /// underlying store transaction's real environment.
+    /// </summary>
+    public RevenueCatTransactionEnvironment? ExpectedTransactionEnvironment { get; init; }
+
+    /// <summary>
     /// Relative endpoint path used by <see cref="IRevenueCatTransactionService.GetTransactionsAsync"/>
     /// to retrieve transactions for reconciliation. RevenueCat's own REST API has no bulk
     /// "list transactions in a date range" endpoint — this default only resolves against a custom
