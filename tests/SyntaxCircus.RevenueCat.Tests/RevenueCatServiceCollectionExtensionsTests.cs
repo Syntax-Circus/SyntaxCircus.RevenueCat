@@ -34,6 +34,7 @@ public class RevenueCatServiceCollectionExtensionsTests
         provider.GetRequiredService<IRevenueCatSubscriberAliasClient>().ShouldBeOfType<RevenueCatSubscriberAliasClient>();
         provider.GetRequiredService<IRevenueCatPurchaseVerifier>().ShouldBeOfType<RevenueCatPurchaseVerifier>();
         provider.GetRequiredService<IRevenueCatProductCatalogService>().ShouldBeOfType<RevenueCatProductCatalogService>();
+        provider.GetRequiredService<IRevenueCatSubscriberDeletionClient>().ShouldBeOfType<RevenueCatSubscriberDeletionClient>();
     }
 
     [Fact]
@@ -68,6 +69,24 @@ public class RevenueCatServiceCollectionExtensionsTests
         using var provider = services.BuildServiceProvider();
         var httpClientFactory = provider.GetRequiredService<IHttpClientFactory>();
         using var client = httpClientFactory.CreateClient(nameof(IRevenueCatSubscriberAliasClient));
+
+        client.BaseAddress.ShouldBe(new Uri("https://custom.revenuecat.test/"));
+    }
+
+    [Fact]
+    public void AddRevenueCat_SubscriberDeletionClientBaseAddress_MatchesConfiguredApiBaseUrl()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddRevenueCat(BuildConfiguration(new Dictionary<string, string?>
+        {
+            ["RevenueCat:ApiKey"] = "sk_secret_key",
+            ["RevenueCat:ApiBaseUrl"] = "https://custom.revenuecat.test/",
+        }));
+
+        using var provider = services.BuildServiceProvider();
+        var httpClientFactory = provider.GetRequiredService<IHttpClientFactory>();
+        using var client = httpClientFactory.CreateClient(nameof(IRevenueCatSubscriberDeletionClient));
 
         client.BaseAddress.ShouldBe(new Uri("https://custom.revenuecat.test/"));
     }
