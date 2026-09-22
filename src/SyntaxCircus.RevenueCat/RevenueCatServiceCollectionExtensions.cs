@@ -6,7 +6,8 @@ public static class RevenueCatServiceCollectionExtensions
     /// Registers <see cref="RevenueCatOptions"/> (bound from the "RevenueCat" section) and typed
     /// <see cref="HttpClient"/>s for <see cref="IRevenueCatTransactionService"/>,
     /// <see cref="IRevenueCatSubscriberAliasClient"/>, <see cref="IRevenueCatPurchaseVerifier"/>,
-    /// and <see cref="IRevenueCatProductCatalogService"/>. Does not register
+    /// <see cref="IRevenueCatProductCatalogService"/>, and <see cref="IRevenueCatSubscriberDeletionClient"/>.
+    /// Does not register
     /// <see cref="RevenueCatWebhookReader"/> (it's static) or wire up a webhook endpoint —
     /// that's your controller/minimal-API's job.
     /// </summary>
@@ -21,6 +22,7 @@ public static class RevenueCatServiceCollectionExtensions
         services.AddHttpClient<IRevenueCatSubscriberAliasClient, RevenueCatSubscriberAliasClient>(ConfigureApiClient);
         services.AddHttpClient<IRevenueCatPurchaseVerifier, RevenueCatPurchaseVerifier>(ConfigureApiClient);
         services.AddHttpClient<IRevenueCatProductCatalogService, RevenueCatProductCatalogService>(ConfigureProductSyncClient);
+        services.AddHttpClient<IRevenueCatSubscriberDeletionClient, RevenueCatSubscriberDeletionClient>(ConfigureApiClient);
 
         return services;
     }

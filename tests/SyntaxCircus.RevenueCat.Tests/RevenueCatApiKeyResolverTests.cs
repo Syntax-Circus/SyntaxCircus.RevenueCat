@@ -94,4 +94,35 @@ public class RevenueCatApiKeyResolverTests
 
         exception.Message.ShouldContain("test operation");
     }
+
+    [Fact]
+    public void ResolveSecretApiKeyOrThrow_NullOptions_ThrowsArgumentNullException()
+        => Should.Throw<ArgumentNullException>(() => RevenueCatApiKeyResolver.ResolveSecretApiKeyOrThrow(null!, "test operation"));
+
+    [Fact]
+    public void ResolveSecretApiKeyOrThrow_ApiKeyConfigured_ReturnsTrimmedKey()
+    {
+        var options = new RevenueCatOptions { ApiKey = "  sk_secret_key  " };
+
+        var key = RevenueCatApiKeyResolver.ResolveSecretApiKeyOrThrow(options, "test operation");
+
+        key.ShouldBe("sk_secret_key");
+    }
+
+    [Fact]
+    public void ResolveSecretApiKeyOrThrow_OnlyPublicApiKeyConfigured_ThrowsWithGuidance()
+    {
+        var options = new RevenueCatOptions { PublicApiKey = "public_key" };
+
+        var exception = Should.Throw<InvalidOperationException>(() =>
+            RevenueCatApiKeyResolver.ResolveSecretApiKeyOrThrow(options, "test operation"));
+
+        exception.Message.ShouldContain("test operation");
+        exception.Message.ShouldContain("RevenueCat:ApiKey");
+    }
+
+    [Fact]
+    public void ResolveSecretApiKeyOrThrow_NothingConfigured_Throws()
+        => Should.Throw<InvalidOperationException>(() =>
+            RevenueCatApiKeyResolver.ResolveSecretApiKeyOrThrow(new RevenueCatOptions(), "test operation"));
 }

@@ -31,6 +31,25 @@ public static class RevenueCatApiKeyResolver
             $"{operationName} requires RevenueCat:PublicApiKey or RevenueCat:ApiKey to be configured.");
     }
 
+    /// <summary>
+    /// Returns <see cref="RevenueCatOptions.ApiKey"/>, the v1 secret API key required for operations
+    /// RevenueCat restricts to secret keys (e.g. subscriber deletion) - unlike
+    /// <see cref="ResolvePrimaryV1CompatibleApiKeyOrThrow"/>, <see cref="RevenueCatOptions.PublicApiKey"/>
+    /// is never an acceptable substitute here, so it isn't considered.
+    /// </summary>
+    public static string ResolveSecretApiKeyOrThrow(RevenueCatOptions options, string operationName)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (!string.IsNullOrWhiteSpace(options.ApiKey))
+        {
+            return options.ApiKey.Trim();
+        }
+
+        throw new InvalidOperationException(
+            $"{operationName} requires RevenueCat:ApiKey to be configured with a v1 secret API key. RevenueCat:PublicApiKey cannot be used for this operation.");
+    }
+
     private static void AddCredential(List<(string Source, string ApiKey)> credentials, string source, string? apiKey)
     {
         if (string.IsNullOrWhiteSpace(apiKey))
