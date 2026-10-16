@@ -5,10 +5,20 @@ public sealed class RevenueCatOptions
 {
     public const string SectionName = "RevenueCat";
 
+    /// <summary>Customer operations API version. Defaults to V1 for compatibility; aliasing always uses V1.</summary>
+    public RevenueCatCustomerApiVersion CustomerApiVersion { get; init; } = RevenueCatCustomerApiVersion.V1;
+
+    /// <summary>V2 customer operations base URL, independent of product publication.</summary>
+    public string CustomerApiBaseUrl { get; init; } = "https://api.revenuecat.com/v2/";
+
+    /// <summary>Optional V2 purchase app allowlist. Empty accepts purchases across the project.</summary>
+    public string[] CustomerAppIds { get; init; } = [];
+
+
     /// <summary>
-    /// Project secret key (e.g. <c>sk_...</c>) or a legacy v1-compatible key used for
-    /// server-to-server calls. Pair with <see cref="PublicApiKey"/> for subscriber/alias
-    /// endpoints when this is a v2-only secret key.
+    /// Server credential for the selected customer API version. V2 requires a secret key with
+    /// customer purchase/customer permissions plus product read permission. V1 may use a legacy
+    /// compatible key. Pair with <see cref="PublicApiKey"/> for aliasing when this key is V2-only.
     /// </summary>
     public string? ApiKey { get; init; }
 
@@ -40,7 +50,7 @@ public sealed class RevenueCatOptions
     /// <summary>Secret API key used for product publication (v2 API).</summary>
     public string? ProductSyncApiKey { get; init; }
 
-    /// <summary>RevenueCat project identifier used for product publication.</summary>
+    /// <summary>RevenueCat project identifier required for V2 customer operations and product publication.</summary>
     public string? ProjectId { get; init; }
 
     /// <summary>RevenueCat app identifier products are published to. Fallback for single-app setups when <see cref="ProductSyncAppIds"/> is empty.</summary>
@@ -64,7 +74,7 @@ public sealed class RevenueCatOptions
     /// <summary>
     /// Relative endpoint path used by <see cref="IRevenueCatTransactionService.GetTransactionsAsync"/>
     /// to retrieve transactions for reconciliation. RevenueCat's own REST API has no bulk
-    /// "list transactions in a date range" endpoint — this default only resolves against a custom
+    /// "list transactions in a date range" endpoint â€” this default only resolves against a custom
     /// aggregation proxy you control. Most consumers should instead call
     /// <see cref="IRevenueCatTransactionService.GetTransactionsForCandidatesAsync"/>, which queries
     /// RevenueCat's real per-subscriber endpoint (<c>GET v1/subscribers/{app_user_id}</c>) for a

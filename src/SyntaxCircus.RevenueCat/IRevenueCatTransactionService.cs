@@ -16,11 +16,11 @@ public sealed record RevenueCatTransaction
 public interface IRevenueCatTransactionService
 {
     /// <summary>
-    /// Fetches transactions from <see cref="RevenueCatOptions.TransactionsEndpoint"/>. RevenueCat's
-    /// own REST API has no bulk "list transactions in a date range" endpoint, so this only returns
-    /// results if <see cref="RevenueCatOptions.TransactionsEndpoint"/> has been pointed at a custom
-    /// aggregation proxy you control. Most consumers should use
-    /// <see cref="GetTransactionsForCandidatesAsync"/> instead.
+    /// In V1, fetches transactions from <see cref="RevenueCatOptions.TransactionsEndpoint"/>, which
+    /// requires a custom aggregation proxy. In V2, scans paginated project customers and their
+    /// one-time purchases, then applies the inclusive purchase-date window locally. Prefer
+    /// <see cref="GetTransactionsForCandidatesAsync"/> when candidate customer IDs are available.
+    /// V2 request, response, or pagination failures throw rather than returning partial results.
     /// </summary>
     Task<IReadOnlyList<RevenueCatTransaction>> GetTransactionsAsync(
         DateTimeOffset startDate,
@@ -28,11 +28,11 @@ public interface IRevenueCatTransactionService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Reconciles transactions for a caller-supplied set of candidate app_user_ids by querying
-    /// <c>GET v1/subscribers/{app_user_id}</c> per id and aggregating <c>non_subscriptions</c>. Use
-    /// this when your own store can supply candidate ids — RevenueCat's REST API has no bulk
-    /// "list transactions in a date range" endpoint, so this is the production-realistic
-    /// reconciliation path against RevenueCat's real API.
+    /// Reconciles transactions for caller-supplied customer IDs. V1 queries
+    /// <c>GET v1/subscribers/{app_user_id}</c> and aggregates <c>non_subscriptions</c>.
+    /// V2 queries each customer's paginated one-time purchases, resolves store product identifiers,
+    /// and applies the inclusive purchase-date window locally. V2 request, response, or pagination
+    /// failures throw rather than returning partial results.
     /// </summary>
     Task<IReadOnlyList<RevenueCatTransaction>> GetTransactionsForCandidatesAsync(
         IReadOnlyCollection<string> candidateAppUserIds,

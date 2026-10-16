@@ -8,7 +8,7 @@ public static class RevenueCatServiceCollectionExtensions
     /// <see cref="IRevenueCatSubscriberAliasClient"/>, <see cref="IRevenueCatPurchaseVerifier"/>,
     /// <see cref="IRevenueCatProductCatalogService"/>, and <see cref="IRevenueCatSubscriberDeletionClient"/>.
     /// Does not register
-    /// <see cref="RevenueCatWebhookReader"/> (it's static) or wire up a webhook endpoint —
+    /// <see cref="RevenueCatWebhookReader"/> (it's static) or wire up a webhook endpoint â€”
     /// that's your controller/minimal-API's job.
     /// </summary>
     public static IServiceCollection AddRevenueCat(this IServiceCollection services, IConfiguration configuration)
@@ -18,14 +18,20 @@ public static class RevenueCatServiceCollectionExtensions
 
         services.Configure<RevenueCatOptions>(configuration.GetSection(RevenueCatOptions.SectionName));
 
-        services.AddHttpClient<IRevenueCatTransactionService, RevenueCatTransactionService>(ConfigureApiClient);
+        services.AddHttpClient<IRevenueCatTransactionService, RevenueCatTransactionService>(ConfigureApiClient).ConfigurePrimaryHttpMessageHandler(ConfigureCustomerHandler);
         services.AddHttpClient<IRevenueCatSubscriberAliasClient, RevenueCatSubscriberAliasClient>(ConfigureApiClient);
-        services.AddHttpClient<IRevenueCatPurchaseVerifier, RevenueCatPurchaseVerifier>(ConfigureApiClient);
+        services.AddHttpClient<IRevenueCatPurchaseVerifier, RevenueCatPurchaseVerifier>(ConfigureApiClient).ConfigurePrimaryHttpMessageHandler(ConfigureCustomerHandler);
         services.AddHttpClient<IRevenueCatProductCatalogService, RevenueCatProductCatalogService>(ConfigureProductSyncClient);
-        services.AddHttpClient<IRevenueCatSubscriberDeletionClient, RevenueCatSubscriberDeletionClient>(ConfigureApiClient);
+        services.AddHttpClient<IRevenueCatSubscriberDeletionClient, RevenueCatSubscriberDeletionClient>(ConfigureApiClient).ConfigurePrimaryHttpMessageHandler(ConfigureCustomerHandler);
 
         return services;
     }
+
+    private static HttpMessageHandler ConfigureCustomerHandler(IServiceProvider provider)
+        => new HttpClientHandler
+        {
+            AllowAutoRedirect = provider.GetRequiredService<IOptions<RevenueCatOptions>>().Value.CustomerApiVersion != RevenueCatCustomerApiVersion.V2,
+        };
 
     private static void ConfigureApiClient(IServiceProvider serviceProvider, HttpClient client)
         => ConfigureClient(serviceProvider, client, options => options.ApiBaseUrl);
