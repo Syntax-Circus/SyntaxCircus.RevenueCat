@@ -50,6 +50,12 @@ public sealed partial class RevenueCatTransactionService(
         CancellationToken cancellationToken = default)
     {
         var options = revenueCatOptions.Value;
+        if (options.CustomerApiVersion == RevenueCatCustomerApiVersion.V2)
+        {
+            return await new RevenueCatCustomerV2Client(httpClient, options)
+                .GetTransactionsAsync(null, startDate, endDate, cancellationToken).ConfigureAwait(false);
+        }
+
         var credentials = RevenueCatApiKeyResolver.ResolveV1CompatibleCredentials(options);
         if (credentials.Count == 0)
         {
@@ -102,6 +108,11 @@ public sealed partial class RevenueCatTransactionService(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(candidateAppUserIds);
+        if (revenueCatOptions.Value.CustomerApiVersion == RevenueCatCustomerApiVersion.V2)
+        {
+            return await new RevenueCatCustomerV2Client(httpClient, revenueCatOptions.Value)
+                .GetTransactionsAsync(candidateAppUserIds, startDate, endDate, cancellationToken).ConfigureAwait(false);
+        }
 
         var credentials = RevenueCatApiKeyResolver.ResolveV1CompatibleCredentials(revenueCatOptions.Value);
         if (credentials.Count == 0)

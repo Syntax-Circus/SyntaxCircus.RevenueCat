@@ -10,6 +10,11 @@ public sealed class RevenueCatSubscriberDeletionClient(
     public async Task<RevenueCatSubscriberDeletionResult> DeleteSubscriberAsync(string appUserId, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(appUserId);
+        if (revenueCatOptions.Value.CustomerApiVersion == RevenueCatCustomerApiVersion.V2)
+        {
+            return await new RevenueCatCustomerV2Client(httpClient, revenueCatOptions.Value)
+                .DeleteAsync(appUserId, cancellationToken).ConfigureAwait(false);
+        }
 
         var apiKey = RevenueCatApiKeyResolver.ResolveSecretApiKeyOrThrow(revenueCatOptions.Value, "RevenueCat subscriber deletion");
 

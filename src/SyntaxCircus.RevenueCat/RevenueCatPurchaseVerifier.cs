@@ -85,6 +85,10 @@ public sealed partial class RevenueCatPurchaseVerifier(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (revenueCatOptions.Value.CustomerApiVersion == RevenueCatCustomerApiVersion.V2)
+        {
+            return await VerifyV2Async(request, cancellationToken).ConfigureAwait(false);
+        }
 
         var credentialCandidates = RevenueCatApiKeyResolver.ResolveV1CompatibleCredentials(revenueCatOptions.Value);
         if (credentialCandidates.Count == 0)
@@ -124,6 +128,45 @@ public sealed partial class RevenueCatPurchaseVerifier(
         catch (Exception ex) when (ex is HttpRequestException or JsonException)
         {
             LogRequestException(logger, ex);
+            return Failure("revenuecat_unavailable", "RevenueCat could not verify this purchase yet.", HttpStatusCode.BadGateway);
+        }
+    }
+
+    private async Task<RevenueCatPurchaseVerificationResult> VerifyV2Async(
+        RevenueCatPurchaseVerificationRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var purchases = await new RevenueCatCustomerV2Client(httpClient, revenueCatOptions.Value)
+                .GetPurchasesAsync(request.AppUserId.Trim(), cancellationToken).ConfigureAwait(false);
+            var purchase = purchases.Where(purchase =>
+                    string.Equals(purchase.ProductId, request.ProductId.Trim(), StringComparison.Ordinal) &&
+                    (string.IsNullOrWhiteSpace(request.TransactionId) || string.Equals(purchase.TransactionId, request.TransactionId.Trim(), StringComparison.Ordinal)))
+                .OrderByDescending(purchase => purchase.PurchasedAt).FirstOrDefault();
+            if (purchase is null) { return Failure("not_found", "RevenueCat has not finalized this purchase yet.", HttpStatusCode.NotFound); }
+            if (purchase.Status != "completed") { return Failure("not_completed", "RevenueCat purchase is not completed.", HttpStatusCode.Accepted); }
+            var isSandbox = purchase.Metadata["revenuecat_environment"] == "sandbox";
+            if (!RevenueCatTransactionEnvironmentMatcher.MatchesVerifiedPurchase(revenueCatOptions.Value.ExpectedTransactionEnvironment, isSandbox))
+            {
+                return Failure("environment_mismatch", "This purchase's store transaction environment does not match what this deployment expects.", HttpStatusCode.UnprocessableEntity);
+            }
+
+            return new RevenueCatPurchaseVerificationResult
+            {
+                Status = "verified", Purchase = new RevenueCatVerifiedPurchase
+                {
+                    AppUserId = purchase.AppUserId, ProductId = purchase.ProductId, TransactionId = purchase.TransactionId,
+                    Price = purchase.Price, Currency = purchase.Currency, Store = purchase.Store, Status = purchase.Status,
+                    PurchasedAt = purchase.PurchasedAt, Metadata = purchase.Metadata, IsSandbox = isSandbox,
+                },
+            };
+        }
+        catch (InvalidOperationException)
+        {
+            return Failure("configuration_error", "RevenueCat V2 customer configuration is incomplete or invalid.", HttpStatusCode.ServiceUnavailable);
+        }
+        catch (HttpRequestException)
+        {
             return Failure("revenuecat_unavailable", "RevenueCat could not verify this purchase yet.", HttpStatusCode.BadGateway);
         }
     }
