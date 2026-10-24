@@ -13,7 +13,7 @@ public sealed class RevenueCatSubscriberAliasClient(
         ArgumentException.ThrowIfNullOrWhiteSpace(canonicalAppUserId);
         ArgumentException.ThrowIfNullOrWhiteSpace(anonymousAppUserId);
 
-        var apiKey = RevenueCatApiKeyResolver.ResolvePrimaryV1CompatibleApiKeyOrThrow(revenueCatOptions.Value, "RevenueCat aliasing");
+        var apiKey = RevenueCatApiKeyResolver.ResolveSecretApiKeyOrThrow(revenueCatOptions.Value, "RevenueCat aliasing");
 
         using var request = new HttpRequestMessage(HttpMethod.Post, $"v1/subscribers/{Uri.EscapeDataString(anonymousAppUserId)}/alias");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
@@ -26,7 +26,7 @@ public sealed class RevenueCatSubscriberAliasClient(
             if (response.StatusCode == HttpStatusCode.Forbidden && message.Contains("\"code\":7723", StringComparison.Ordinal))
             {
                 throw new InvalidOperationException(
-                    "RevenueCat aliasing failed because the configured key is not compatible with RevenueCat API v1. Configure RevenueCat:PublicApiKey with the RevenueCat app's public/API key.");
+                    "RevenueCat aliasing failed because the configured key is not compatible with RevenueCat API v1. Configure RevenueCat:ApiKey with a v1-compatible secret API key; RevenueCat no longer accepts a public key for aliasing.");
             }
 
             throw new InvalidOperationException($"RevenueCat alias request failed with HTTP {(int)response.StatusCode}: {message}");
