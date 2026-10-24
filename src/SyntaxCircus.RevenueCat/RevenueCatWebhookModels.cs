@@ -56,6 +56,36 @@ public sealed class RevenueCatEvent
     [JsonPropertyName("currency")]
     public string? Currency { get; init; }
 
+    /// <summary>
+    /// Sales tax collected on the transaction, in <see cref="Currency"/>. Present on Web Billing (RC_BILLING) events
+    /// when tax is collected; for those, <see cref="Price"/> is the gross amount charged including this tax when
+    /// <see cref="TaxInclusive"/> is <see langword="false"/> (tax added on top of the list price).
+    /// </summary>
+    [JsonPropertyName("tax_amount")]
+    public decimal? TaxAmount { get; init; }
+
+    /// <summary>
+    /// Whether the list price already includes the tax (<see langword="true"/>) or the tax was added on top
+    /// (<see langword="false"/>). Only sent together with <see cref="TaxAmount"/>.
+    /// </summary>
+    [JsonPropertyName("tax_inclusive")]
+    public bool? TaxInclusive { get; init; }
+
+    /// <summary>Estimated tax as a fraction of <see cref="Price"/> (store purchases). May be absent or <see langword="null"/>.</summary>
+    [JsonPropertyName("tax_percentage")]
+    public decimal? TaxPercentage { get; init; }
+
+    /// <summary>Estimated store commission as a fraction of <see cref="Price"/> (store purchases). May be absent or <see langword="null"/>.</summary>
+    [JsonPropertyName("commission_percentage")]
+    public decimal? CommissionPercentage { get; init; }
+
+    /// <summary>
+    /// Fraction of <see cref="Price"/> the developer keeps after tax and store commission. Deprecated by RevenueCat in
+    /// favour of <see cref="TaxPercentage"/> and <see cref="CommissionPercentage"/>, but still sent on some events.
+    /// </summary>
+    [JsonPropertyName("takehome_percentage")]
+    public decimal? TakehomePercentage { get; init; }
+
     /// <summary>Store identifier: APP_STORE, PLAY_STORE, STRIPE, RC_BILLING, etc. — see <see cref="RevenueCatStores"/>.</summary>
     [JsonPropertyName("store")]
     public string? Store { get; init; }
