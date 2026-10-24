@@ -101,7 +101,7 @@ V2 purchase prices are gross USD from `revenue_in_usd.gross`, paired with curren
 
 V2 follows paginated responses with cycle/page limits and rejects pagination outside the expected origin and collection before sending credentials. Failed or malformed pages do not become successful empty or partial reconciliation results. The DI-registered V2 clients disable HTTP redirects; consumers constructing clients with their own `HttpClient` must also disable automatic redirects on its handler.
 
-Aliasing remains a V1 operation. If using it alongside a V2 secret key, configure an appropriate V1-compatible `PublicApiKey` separately. Product publishing already uses V2 through its independent `ProductSyncApiKey` settings and is unaffected. Webhook handling is also unchanged.
+Aliasing remains a V1 operation and, like subscriber deletion, requires a V1-compatible secret `ApiKey` — RevenueCat rejects aliasing with a public key (HTTP 403, code 8185), so `PublicApiKey` is never used for it. Product publishing already uses V2 through its independent `ProductSyncApiKey` settings and is unaffected. Webhook handling is also unchanged.
 
 Contracts checked against RevenueCat’s official [customer API](https://www.revenuecat.com/docs/api-v2/customer), [customer resources](https://www.revenuecat.com/docs/api-v2/customer/resources), [purchase API](https://www.revenuecat.com/docs/api-v2/purchase), and [product API](https://www.revenuecat.com/docs/api-v2/product).
 
@@ -120,7 +120,7 @@ if (verified.Status == "environment_mismatch")
 
 This is independent of what any client believes its selected backend to be — a mobile client choosing "UAT" or "Production" locally is not proof of the underlying store transaction's real environment, so a UAT deployment could otherwise record a genuine production purchase (or vice versa) if a client's local selection doesn't match reality. `RevenueCatTransactionEnvironmentMatcher.MatchesWebhookEnvironment(expected, revenueCatEvent.Environment)` applies the identical check to the webhook path, since `RevenueCatEvent.Environment` already carries RevenueCat's own `SANDBOX`/`PRODUCTION` value — call it yourself before acting on a webhook event, the same way `IRevenueCatPurchaseVerifier` already does internally for verification. Both checks pass through unknown/unverifiable values (a `null` `IsSandbox` or a missing webhook `Environment`) rather than rejecting them, since an inability to verify isn't evidence of a mismatch.
 
-`RevenueCatApiKeyResolver` returns configured V1 credential candidates in preference order (`PublicApiKey`, then `ApiKey`); it does not infer API compatibility from key prefixes. The subscriber/purchase/alias clients use these candidates for V1 calls. `ResolveSecretApiKeyOrThrow` is the exception — it's used only by `IRevenueCatSubscriberDeletionClient`, which RevenueCat restricts to `ApiKey` specifically and never accepts `PublicApiKey` for.
+`RevenueCatApiKeyResolver` returns configured V1 credential candidates in preference order (`PublicApiKey`, then `ApiKey`); it does not infer API compatibility from key prefixes. The subscriber/purchase clients use these candidates for V1 calls. `ResolveSecretApiKeyOrThrow` is the exception — it's used by `IRevenueCatSubscriberDeletionClient` and `IRevenueCatSubscriberAliasClient`, which RevenueCat restricts to `ApiKey` specifically and never accepts `PublicApiKey` for.
 
 ## Contributing
 

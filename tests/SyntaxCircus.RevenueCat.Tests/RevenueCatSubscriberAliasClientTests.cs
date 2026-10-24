@@ -8,7 +8,7 @@ public class RevenueCatSubscriberAliasClientTests
     {
         var handler = new StubHttpMessageHandler(responder);
         var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://api.revenuecat.test/") };
-        var client = new RevenueCatSubscriberAliasClient(httpClient, Options.Create(options ?? new RevenueCatOptions { PublicApiKey = "public_key" }));
+        var client = new RevenueCatSubscriberAliasClient(httpClient, Options.Create(options ?? new RevenueCatOptions { ApiKey = "secret_key" }));
         return (client, handler);
     }
 
@@ -21,7 +21,7 @@ public class RevenueCatSubscriberAliasClientTests
 
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Post);
         handler.LastRequest.RequestUri!.ToString().ShouldContain("v1/subscribers/anon-user/alias");
-        handler.LastRequest.HeaderValue("Authorization").ShouldBe("Bearer public_key");
+        handler.LastRequest.HeaderValue("Authorization").ShouldBe("Bearer secret_key");
         handler.LastRequest.Body!.ShouldContain("canonical-user");
     }
 
@@ -36,7 +36,34 @@ public class RevenueCatSubscriberAliasClientTests
         var exception = await Should.ThrowAsync<InvalidOperationException>(() =>
             client.CreateAliasAsync("canonical-user", "anon-user", TestContext.Current.CancellationToken));
 
-        exception.Message.ShouldContain("PublicApiKey");
+        exception.Message.ShouldContain("RevenueCat:ApiKey");
+    }
+
+    [Fact]
+    public async Task CreateAliasAsync_BothKeysConfigured_UsesTheSecretKey()
+    {
+        var (client, handler) = CreateClient(
+            _ => new HttpResponseMessage(HttpStatusCode.OK),
+            new RevenueCatOptions { ApiKey = "secret_key", PublicApiKey = "public_key" });
+
+        await client.CreateAliasAsync("canonical-user", "anon-user", TestContext.Current.CancellationToken);
+
+        handler.LastRequest!.HeaderValue("Authorization").ShouldBe("Bearer secret_key");
+    }
+
+    [Fact]
+    public async Task CreateAliasAsync_OnlyPublicKeyConfigured_ThrowsWithoutCallingRevenueCat()
+    {
+        // RevenueCat rejects aliasing with a public key (HTTP 403, code 8185), so don't even try.
+        var (client, handler) = CreateClient(
+            _ => new HttpResponseMessage(HttpStatusCode.OK),
+            new RevenueCatOptions { PublicApiKey = "public_key" });
+
+        var exception = await Should.ThrowAsync<InvalidOperationException>(() =>
+            client.CreateAliasAsync("canonical-user", "anon-user", TestContext.Current.CancellationToken));
+
+        exception.Message.ShouldContain("RevenueCat:ApiKey");
+        handler.LastRequest.ShouldBeNull();
     }
 
     [Fact]
